@@ -22,7 +22,7 @@ void comserver() {
     }
     if (code != 0) {
         close(servsk);
-        std::cout << "PROTO_ERROR" << "SERVER MUST SEND 0";
+        std::cout << "PROTO_ERROR" << std::endl<< "SERVER MUST SEND 0";
         return;
     }
     oror = send_Message(1,"ok", servsk);
@@ -32,7 +32,23 @@ void comserver() {
         return;
     }
     while (true) {
-        read_Secret(reinterpret_cast<uint8_t *>(buff), MAX_MESSAGE_SIZE, servsk, code, realmsize);
+        bool readokrono = read_Secret(reinterpret_cast<uint8_t *>(buff), MAX_MESSAGE_SIZE, servsk, code, realmsize);
+        if (readokrono == false) {
+            std::cout << "ERROR";
+            return;
+        }
+        else {
+            if (code == 2) {
+                std::cout << "IMPORTANT!!!";
+                buff[realmsize-3] = 0;
+                std::cout << buff;
+                std::cout << std::flush;
+            }
+            else {
+                std::cout << code;
+                std::cout << std::flush;
+            }
+        }
     }
 
 }
@@ -45,7 +61,7 @@ int main() {
     }
     sockaddr_in serveradr = {0};
     serveradr.sin_family = AF_INET;
-    serveradr.sin_port = htons(4551);
+    serveradr.sin_port = htons(4552);
     inet_pton(AF_INET, "127.0.0.1", &serveradr.sin_addr);
     int statusconnect = connect(servsk, (sockaddr *) &serveradr, sizeof(serveradr));
     if (statusconnect == -1) {
@@ -57,6 +73,14 @@ int main() {
     std::string msg;
     while (true) {
         std::cin >> msg;
+       bool sendokorno = send_Message(2, msg, servsk);
+        if (sendokorno == false) {
+            std::cout << "ERROR";
+            return 1;
+        }
+        else {
+
+        }
     }
     return 0;
 }

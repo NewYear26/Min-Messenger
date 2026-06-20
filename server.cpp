@@ -43,7 +43,9 @@ void ClientCom(User user) {
             return;
         }
         if (code == 2) {
-            
+            for (int i = 0; i < users.size(); i++) {
+                send_Secret(2, reinterpret_cast<uint8_t*>(buff), realmsize-3, users[i].socket);
+            }
         }
     }
 }
@@ -57,7 +59,7 @@ int main() {
     }
     sockaddr_in serveradr = {0};
     serveradr.sin_family = AF_INET;
-    serveradr.sin_port = htons(4551);
+    serveradr.sin_port = htons(4552);
     inet_pton(AF_INET, "127.0.0.1", &serveradr.sin_addr);
     int binstatus = bind(serversocket, (sockaddr *) &serveradr, sizeof(serveradr));
     if (binstatus == -1) {

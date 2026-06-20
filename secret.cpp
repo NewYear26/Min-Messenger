@@ -35,10 +35,14 @@ bool read_Secret(uint8_t *data, size_t max_numbits, int socket, uint8_t &code, u
         std::cout << "Can't read the message";
         return false;
     }
+    colv = recv(socket, &code,1, 0);
+    if (colv < 1) {
+        std::cout << "Can't read the message";
+    }
     realmes = msize;
-    int total = 2;
+    int total = 3;
     while (true) {
-        ssize_t kolvo = recv(socket, data + total, msize - total, 0);
+        ssize_t kolvo = recv(socket, data + total - 3, msize - total, 0);
         if (kolvo == -1) {
             std::cout << "Can't read the message";
             return false;
@@ -46,7 +50,6 @@ bool read_Secret(uint8_t *data, size_t max_numbits, int socket, uint8_t &code, u
         if (kolvo > 0) {
             total += kolvo;
             if (total == msize) {
-                code = data[0];
                 return true;
             }
         }
