@@ -1,11 +1,20 @@
 #include "secret.h"
 
+#include <cstring>
+
 bool send_Secret(uint8_t code, const uint8_t *data, size_t numbits, int socket) {
+    if (data == nullptr && numbits > 0) {
+        return false;
+    }
+    if (numbits > std::numeric_limits<uint16_t>::max()-3) {
+        return false;
+    }
     uint8_t *dataforcend = new uint8_t[3 + numbits];
     for (int i = 0; i < numbits; i++) {
         *(dataforcend + 3 + i) = *reinterpret_cast<const uint8_t *>(data + i);
     }
-    *reinterpret_cast<uint16_t *>(dataforcend) = 3 + numbits;
+    uint16_t sizedateeror = htons((uint16_t) 3+numbits);
+    memcpy(dataforcend, &sizedateeror, sizeof(uint16_t));
     *reinterpret_cast<uint8_t *>(dataforcend + 2) = code;
     ssize_t total = 0;
     int attemp = 0;
