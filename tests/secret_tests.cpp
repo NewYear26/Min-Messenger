@@ -68,7 +68,10 @@ bool send_secret_serializes_binary_frame() {
     if (bytes.size() >= 2) std::memcpy(&length, bytes.data(), sizeof(length));
     close(pair[0]);
     close(pair[1]);
-    return sent && bytes.size() == 6 && length == 6 && bytes[2] == 7 &&
+    return sent &&
+           bytes.size() == 6 &&
+           ntohs(length) == 6 &&
+           bytes[2] == 7 &&
            std::equal(bytes.begin() + 3, bytes.end(), payload);
 }
 
