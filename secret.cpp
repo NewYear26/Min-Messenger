@@ -37,19 +37,40 @@ bool send_Secret(uint8_t code, const uint8_t *data, size_t numbits, int socket) 
     }
 }
 
+bool read_header(uint8_t *data, int socket) {
+    int total = 0;
+    while (true) {
+        ssize_t colv = recv(socket,data,2,0);
+        if (colv < 0) {
+            return false;
+        }
+        else if (colv == 0) {
+            return false;
+        }
+        else {
+            total += colv;
+            if (total == 2) {
+                return true;
+            }
+        }
+    }
+}
+
 bool read_Secret(uint8_t *data, size_t max_numbits, int socket, uint8_t &code, uint16_t &realmes) {
     uint16_t msize;
-    ssize_t colv = recv(socket, &msize, 2, 0);
-    if (colv < 2) {
-        std::cout << "Can't read the message";
+    bool status = read_header(reinterpret_cast<uint8_t *>(&msize), socket);
+    if (status == false) {
         return false;
     }
+    ssize_t colv;
     colv = recv(socket, &code,1, 0);
     if (colv < 1) {
         std::cout << "Can't read the message";
     }
-    code = ntohs(code);
     realmes = ntohs(msize);
+    if (realmes == 3) {
+        return true;
+    }
     int total = 3;
     while (true) {
         ssize_t kolvo = recv(socket, data + total - 3, realmes - total, 0);
@@ -62,7 +83,7 @@ bool read_Secret(uint8_t *data, size_t max_numbits, int socket, uint8_t &code, u
         }
         if (kolvo > 0) {
             total += kolvo;
-            if (total > max_numbits) {
+            if (total - 3 > max_numbits) {
                 return false;
             }
             if (total == realmes) {
