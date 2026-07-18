@@ -1,103 +1,86 @@
-# Potential defects and recommended fixes
+# Актуальные известные ошибки
 
-No production source was changed. This report describes what should be fixed.
+Документ описывает текущее состояние production-кода. Тесты и документация не
+исправляют перечисленные ниже дефекты.
 
-## Critical
+## Критические
 
-1. **Unbounded write in `read_Secret` (`secret.cpp`).** `max_numbits` is never
-   checked. A peer-controlled length can write beyond `data`, causing memory
-   corruption or remote code execution. Reject lengths below 3 and payloads
-   larger than `max_numbits` before reading the body.
+1. **Выход за границу буфера в legacy server.** После чтения 1024 байт код
+   записывает `buff[1024] = 0` в массив размером 1024. Бинарной пересылке
+   нулевой терминатор не нужен.
 
-2. **Infinite receive loops (`secret.cpp`).** The body loop handles `-1` but
-   ignores `recv() == 0`; it also loops forever for a valid frame of length 3
-   because it calls `recv(..., 0)`. Return `false` on EOF and return `true`
-   immediately once the header and code constitute the complete frame.
+2. **Нестабильное время жизни `User`.** `main.cpp` передаёт в `pthread_create`
+   адрес локальной переменной `newUser`. Поток может прочитать объект после
+   завершения его времени жизни.
 
-3. **TCP fragmentation is treated as an error (`secret.cpp`).** A single
-   `recv(..., 2)` is not guaranteed to return two bytes. Implement a
-   `recv_exact` loop for both fixed header fields and the body, handling
-   `EINTR`.
+3. **Гонки данных в реестре клиентов.** `main.cpp` изменяет и перебирает
+   глобальный `users` из разных потоков без синхронизации. В `server.cpp`
+   mutex объявлен, но не используется.
 
-4. **Invalid code read continues (`secret.cpp`).** If reading the code returns
-   fewer than one byte, the function prints an error but continues. Return
-   `false` immediately.
+4. **Secret server не регистрирует клиентов.** После успешного handshake объект
+   `User` не добавляется в `users`, поэтому сообщения с кодом 2 некому
+   пересылать.
 
-5. **Length truncation in `send_Secret` (`secret.cpp`).** `3 + numbits` is
-   silently narrowed to `uint16_t`. Reject payloads greater than
-   `UINT16_MAX - 3` before allocating or sending.
+5. **Отключённые пользователи не удаляются.** Legacy server оставляет закрытые
+   дескрипторы в `users`. Номер дескриптора может быть повторно использован ОС,
+   а отправка в закрытый сокет может завершить процесс через `SIGPIPE`.
 
-6. **Null pointer dereference (`secret.cpp`).** A nonzero length with
-   `data == nullptr` crashes. Validate the pointer before copying.
+6. **Сломанная CMake-конфигурация.** Targets включают несколько исходников с
+   `main()`; target Secret server также должен линковаться с `secret.cpp`.
 
-7. **Dangling pointer passed to pthread (`main.cpp`).** `pthread_create`
-   receives `&newUser`, a loop-local object that is destroyed/reused while the
-   thread accesses it. Pass an owned heap object, a stable container element,
-   or copy the value through a safe C++ thread capture.
+## Надёжность и корректность
 
-8. **Out-of-bounds terminator (`main.cpp`).** When `recv` returns 1024,
-   `buff[bits] = 0` writes at index 1024 of a 1024-byte array. The relay is
-   binary and does not need termination; otherwise reserve one extra byte or
-   receive at most `size - 1`.
+7. Проверка результата `socket()` использует `< -1` вместо `< 0` во всех трёх
+   entry points.
 
-9. **Data races on users (`main.cpp`, `server.cpp`).** Connection threads
-   iterate global vectors while the accept thread may modify them. Protect all
-   accesses with one mutex or use a connection registry with stable lifetime.
-   Do not hold its mutex during blocking sends.
+8. Legacy server не обрабатывает частичную отправку: один `send()` может
+   передать меньше запрошенного количества байт.
 
-10. **Secret server never registers clients (`server.cpp`).** `User` is passed
-    to `ClientCom` but never inserted into `users`, so code-2 relay has no
-    recipients. Register after successful handshake and remove on every exit.
+9. `send_Secret()` повторяет любые ошибки до 100 раз без различения `EINTR`,
+   `EAGAIN` и фатальных ошибок. Отправка также не защищена от `SIGPIPE`.
 
-11. **Broken configured build (`CMakeLists.txt`).** Both executable targets
-    include `server.cpp`; each then has two `main` functions and duplicate
-    globals. Define separate targets: legacy server from `main.cpp`, Secret
-    server from `server.cpp + secret.cpp`, and client from
-    `client.cpp + secret.cpp`.
+10. `read_Secret()` не проверяет `realmes < 3` явно. Обычный маленький буфер
+    случайно отклоняет такой кадр из-за преобразования типов, но контракт
+    функции остаётся небезопасным для произвольного `max_numbits`.
 
-## High severity and portability
+11. Чтение и запись не повторяются корректно после `EINTR`; неблокирующие
+    сокеты с `EAGAIN` также не поддерживаются.
 
-12. **Wrong socket failure checks.** `socket()` failure is `-1`, but all entry
-    points test `< -1`. Change to `< 0` and avoid calling networking functions
-    with an invalid descriptor.
+12. Secret server может одновременно отправлять несколько кадров в один сокет
+    из разных worker threads. Без сериализации части кадров способны
+    перемешаться.
 
-13. **Native-endian wire length.** Direct `uint16_t` stores make peers with
-    different byte order incompatible. Serialize with `htons` and parse with
-    `ntohs`; use `memcpy` rather than an unaligned `reinterpret_cast` store.
+13. Нет deadline для handshake и чтения тела. Клиент может прислать часть кадра
+    и навсегда занять поток.
 
-14. **Process termination through `SIGPIPE`.** Sending to a disconnected peer
-    can terminate the whole process on POSIX. Use `MSG_NOSIGNAL` where
-    available or ignore `SIGPIPE` and handle `EPIPE`.
+14. Число detached worker threads не ограничено, а корректного shutdown и
+    ожидания потоков нет.
 
-15. **Busy retry loop in `send_Secret`.** Permanent failures are retried 100
-    times without distinguishing `EINTR`, `EAGAIN`, and fatal errors. Retry
-    `EINTR`; wait for writability on `EAGAIN`; return immediately for fatal
-    errors.
+## Клиент
 
-16. **Partial sends ignored in legacy relay (`main.cpp`).** `send()` may write
-    fewer bytes than requested. Use a bounded send-all loop and handle errors.
+15. Reader thread выполняет handshake параллельно с главным stdin loop.
+    Пользовательский кадр с кодом 2 может уйти раньше подтверждения с кодом 1.
 
-17. **Disconnected users are never removed.** Closed descriptors remain in
-    the global registry and may later be reused by the OS for unrelated
-    clients. Remove entries atomically before closing the socket.
+16. Результат `std::cin >> msg` не проверяется. После EOF цикл продолжает
+    отправлять старое или пустое значение.
 
-18. **Detached thread lifetime is uncontrolled.** Both implementations detach
-    workers, preventing orderly shutdown and resource accounting. Prefer
-    joinable workers managed by the server or a bounded thread pool.
+17. Reader thread может закрыть глобальный `servsk`, пока главный поток
+    выполняет отправку через тот же дескриптор.
 
-19. **Client spins after stdin EOF (`client.cpp`).** `std::cin >> msg` is not
-    checked. On EOF the loop repeatedly sends stale/empty state. Break when
-    extraction fails and shut down the socket cleanly.
+18. Для payload размером `MAX_MESSAGE_SIZE` клиент записывает завершающий ноль
+    за границу `buff`.
 
-20. **Concurrent client shutdown is racy (`client.cpp`).** The detached reader
-    can close `servsk` while the main thread sends through it. Coordinate
-    ownership, signal shutdown, and join the reader.
+19. Оператор `>>` читает только одно слово, поэтому сообщения с пробелами
+    отправить нельзя.
 
-21. **No protocol/resource timeouts.** A peer can send only part of a frame and
-    occupy a worker forever. Add socket deadlines or poll/select timeouts and a
-    maximum number of concurrent clients.
+## Инфраструктура
 
-22. **No authentication, integrity, or encryption.** Any local process can
-    impersonate a client and payloads are plaintext. If the messenger handles
-    sensitive data, use TLS and an authenticated session protocol; the name
-    “Secret” does not provide security.
+20. `run_tests.sh` не очищает старые файлы в `tests/bin`. Если новая сборка
+    завершилась ошибкой, проверки существования могут разрешить запуск
+    бинарников от предыдущей сборки.
+
+21. Проект требует Linux/WSL. MinGW не предоставляет используемый набор POSIX
+    API, в частности `fork()` и `socketpair()` из unit-тестов.
+
+22. Secret не обеспечивает безопасность: нет TLS, аутентификации, проверки
+    целостности и защиты от повторной отправки пакетов.

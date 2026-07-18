@@ -1,37 +1,62 @@
-# Tests
+# Тесты Min Messenger
 
-Run from the repository root on Linux:
+Запускать набор следует из корня репозитория в Linux или WSL:
 
 ```sh
-sh tests/run_tests.sh
+sh run_tests.sh
 ```
 
-The source uses POSIX sockets, `fork`, pthreads, and `<unistd.h>`, so the test
-suite requires Linux (or an installed WSL distribution), a C++20 compiler,
-Python 3, and optionally CMake.
+Нужны компилятор C++20, pthreads, POSIX sockets и Python 3. CMake необязателен:
+если он доступен, runner дополнительно проверит configured build.
 
-## Coverage
+## Unit-тесты протокола
 
-`secret_tests.cpp` tests all reusable protocol functions:
+`secret_tests.cpp` проверяет:
 
-- binary, empty, and embedded-NUL payloads;
-- exact buffer boundaries and `uint16_t` length overflow;
-- null input and disconnected peers;
-- fragmented TCP header and body delivery;
-- empty, truncated, undersized, and oversized frames;
-- portable network byte order;
-- termination instead of hanging after peer shutdown.
+- бинарные, пустые и содержащие `\0` payload;
+- сетевой порядок байтов поля длины;
+- частичную доставку заголовка и payload;
+- точную границу выходного буфера;
+- переполнение 16-битной длины и `nullptr`;
+- закрытие соединения и усечённые кадры;
+- кадры короче обязательного заголовка;
+- отклонение payload, превышающего `max_numbits`.
 
-Every unit case runs in a separate process with a 750 ms deadline. A memory
-error, `SIGPIPE`, or infinite receive loop therefore fails only that case and
-does not prevent the remaining tests from running.
+Каждый сценарий запускается в отдельнем дочернем процессе с таймаутом. Поэтому
+зависание, сигнал или повреждение памяти не останавливают остальные unit-тесты.
 
-`integration_tests.py` exercises the application entry points over real TCP:
+## Интеграционные тесты
 
-- legacy server binary relay, no sender echo, and a full 1024-byte read;
-- Secret server handshake, invalid handshake, fragmented handshake, and relay;
-- interactive client handshake plus traffic in both directions.
+`integration_tests.py` запускает собранные программы и проверяет их через TCP.
 
-The runner also compiles every translation unit independently and attempts the
-project's unmodified CMake build. Failures are intentional evidence of current
-defects; production code and build configuration are not modified by tests.
+Legacy server:
+
+- пересылка бинарных данных другому клиенту;
+- отсутствие эха отправителю;
+- безопасная обработка полного 1024-байтного буфера.
+
+Secret server:
+
+- корректный handshake;
+- закрытие соединения при неверном handshake code;
+- handshake, доставленный по одному байту;
+- пересылка сообщения между двумя прошедшими handshake клиентами.
+
+Client:
+
+- получение server hello;
+- отправка handshake acknowledgement;
+- отправка пользовательского сообщения;
+- получение и вывод сообщения от сервера.
+
+Python-тесты кодируют `length` через формат `!H`, то есть как `uint16_t` в
+network byte order. Это соответствует `htons()` и `ntohs()` в `secret.cpp`.
+
+## Интерпретация результатов
+
+Часть тестов намеренно фиксирует ещё не исправленные дефекты production-кода.
+Падение теста означает несоответствие заявленному поведению, а не необходимость
+ослабить проверку. Известные причины перечислены в `tests/ERRORS.md`.
+
+Runner не должен использоваться с бинарниками от старой сборки. Перед
+диагностикой следует убедиться, что этапы `Build ...` завершились успешно.
