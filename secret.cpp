@@ -40,7 +40,7 @@ bool send_Secret(uint8_t code, const uint8_t *data, size_t numbits, int socket) 
 bool read_header(uint8_t *data, int socket) {
     int total = 0;
     while (true) {
-        ssize_t colv = recv(socket,data,2,0);
+        ssize_t colv = recv(socket,data+total,2-total,0);
         if (colv < 0) {
             return false;
         }
@@ -66,10 +66,14 @@ bool read_Secret(uint8_t *data, size_t max_numbits, int socket, uint8_t &code, u
     colv = recv(socket, &code,1, 0);
     if (colv < 1) {
         std::cout << "Can't read the message";
+        return false;
     }
     realmes = ntohs(msize);
     if (realmes == 3) {
         return true;
+    }
+    if (realmes - 3 > max_numbits) {
+        return false;
     }
     int total = 3;
     while (true) {
