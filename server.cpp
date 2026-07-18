@@ -93,8 +93,9 @@ int main() {
                 user.id = id + 1;
                 id++;
             }
+            user.socket = sockmessage;
+            users.push_back(user);
         }
-        user.socket = sockmessage;
         std::thread t(ClientCom, user);
         t.detach();
     }
